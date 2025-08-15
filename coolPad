@@ -144,9 +144,11 @@ end)
 
 -- UI
 local function createUI()
-	local gui = Instance.new("ScreenGui", PlayerGui)
+	local gui = Instance.new("ScreenGui")
 	gui.Name = "ControlUI"
 	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.Parent = PlayerGui
 
 	-- Fly Button
 	local flyBtn = Instance.new("TextButton", gui)
@@ -156,7 +158,9 @@ local function createUI()
 	flyBtn.TextColor3 = Color3.new(1, 1, 1)
 	flyBtn.Font = Enum.Font.SourceSansBold
 	flyBtn.TextSize = 18
+	flyBtn.ZIndex = 10
 	flyBtn.Text = "Fly: OFF"
+	flyBtn.Visible = true
 	flyBtn.MouseButton1Click:Connect(function()
 		flyingEnabled = not flyingEnabled
 		flyBtn.Text = "Fly: " .. (flyingEnabled and "ON" or "OFF")
@@ -171,7 +175,9 @@ local function createUI()
 	hlBtn.TextColor3 = Color3.new(1, 1, 1)
 	hlBtn.Font = Enum.Font.SourceSansBold
 	hlBtn.TextSize = 18
+	hlBtn.ZIndex = 10
 	hlBtn.Text = "Highlights: ON"
+	hlBtn.Visible = true
 	hlBtn.MouseButton1Click:Connect(function()
 		highlightsEnabled = not highlightsEnabled
 		hlBtn.Text = "Highlights: " .. (highlightsEnabled and "ON" or "OFF")
