@@ -6,242 +6,174 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- State
+-- State Tracking
+local flyingEnabled = false
+local flying = false
 local highlightsEnabled = true
-local flyingEnabled = false -- Fly toggle (allowed to fly)
-local flying = false        -- Actual flying state (when flying)
 
-local moveDirection = Vector3.zero
+local speed = 50
+local control = {F=0, B=0, L=0, R=0, U=0, D=0}
+local bodyGyro, bodyVelocity
+
 local highlightList = {}
 local nameTagList = {}
 
-local character, humanoidRootPart, humanoid
-local velocity, gyro
-local flyConnection
-
--- ======= HIGHLIGHT & NAMETAGS SYSTEM =======
-
+-- Utility: Add highlight and name tags to other players
 local function ensureHighlight(character)
-	if character and not character:FindFirstChild("Highlight") then
-		local highlight = Instance.new("Highlight")
-		highlight.Name = "Highlight"
-		highlight.FillColor = Color3.fromRGB(0, 170, 255)
-		highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
-		highlight.Parent = character
-		table.insert(highlightList, highlight)
-	end
+    if not character:FindFirstChild("Highlight") then
+        local highlight = Instance.new("Highlight", character)
+        highlight.FillColor = Color3.fromRGB(0, 170, 255)
+        highlight.OutlineColor = Color3.new(0, 0, 0)
+        table.insert(highlightList, highlight)
+    end
 end
 
-local function ensureNameTag(character, playerName)
-	local head = character:FindFirstChild("Head")
-	if head and not head:FindFirstChild("NameTag") then
-		local billboardGui = Instance.new("BillboardGui")
-		billboardGui.Name = "NameTag"
-		billboardGui.Adornee = head
-		billboardGui.Size = UDim2.new(0, 120, 0, 20)
-		billboardGui.StudsOffset = Vector3.new(0, 2.3, 0)
-		billboardGui.AlwaysOnTop = true
+local function ensureNameTag(character, nameText)
+    local head = character:FindFirstChild("Head")
+    if head and not head:FindFirstChild("NameTag") then
+        local billboard = Instance.new("BillboardGui", head)
+        billboard.Adornee = head
+        billboard.Size = UDim2.new(0, 120, 0, 20)
+        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+        billboard.AlwaysOnTop = true
 
-		local nameLabel = Instance.new("TextLabel")
-		nameLabel.Name = "Label"
-		nameLabel.Size = UDim2.new(1, 0, 1, 0)
-		nameLabel.BackgroundTransparency = 1
-		nameLabel.Text = playerName
-		nameLabel.TextColor3 = Color3.fromRGB(0, 170, 255)
-		nameLabel.TextStrokeTransparency = 0.5
-		nameLabel.Font = Enum.Font.SourceSansBold
-		nameLabel.TextScaled = true
-		nameLabel.Parent = billboardGui
+        local label = Instance.new("TextLabel", billboard)
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Text = nameText
+        label.TextColor3 = Color3.fromRGB(0, 170, 255)
+        label.TextStrokeTransparency = 0.5
+        label.Font = Enum.Font.SourceSansBold
+        label.TextScaled = true
 
-		billboardGui.Parent = head
-		table.insert(nameTagList, billboardGui)
-	end
+        table.insert(nameTagList, billboard)
+    end
 end
 
+-- Monitor players for highlights
 local function monitorPlayer(player)
-	if player == LocalPlayer then return end
-
-	local function setupCharacter(character)
-		ensureHighlight(character)
-		ensureNameTag(character, player.Name)
-	end
-
-	if player.Character then
-		setupCharacter(player.Character)
-	end
-
-	player.CharacterAdded:Connect(setupCharacter)
+    if player == LocalPlayer then return end
+    local function setup(char)
+        ensureHighlight(char)
+        ensureNameTag(char, player.Name)
+    end
+    player.CharacterAdded:Connect(setup)
+    if player.Character then setup(player.Character) end
 end
 
-for _, player in ipairs(Players:GetPlayers()) do
-	monitorPlayer(player)
-end
-
+for _, p in ipairs(Players:GetPlayers()) do monitorPlayer(p) end
 Players.PlayerAdded:Connect(monitorPlayer)
 
 RunService.Heartbeat:Connect(function()
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character then
-			ensureHighlight(player.Character)
-			ensureNameTag(player.Character, player.Name)
-		end
-	end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            ensureHighlight(p.Character)
+            ensureNameTag(p.Character, p.Name)
+        end
+    end
 end)
 
--- ======= FLY SYSTEM ======= --
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed or not flyingEnabled or not flying then return end
-
-	if input.KeyCode == Enum.KeyCode.W then
-		moveDirection += Vector3.new(0, 0, -1)
-	elseif input.KeyCode == Enum.KeyCode.S then
-		moveDirection += Vector3.new(0, 0, 1)
-	elseif input.KeyCode == Enum.KeyCode.A then
-		moveDirection += Vector3.new(-1, 0, 0)
-	elseif input.KeyCode == Enum.KeyCode.D then
-		moveDirection += Vector3.new(1, 0, 0)
-	elseif input.KeyCode == Enum.KeyCode.Space then
-		moveDirection += Vector3.new(0, 1, 0)
-	elseif input.KeyCode == Enum.KeyCode.LeftControl then
-		moveDirection += Vector3.new(0, -1, 0)
-	end
+-- Flying controls
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp or not (flyingEnabled and flying) then return end
+    if input.KeyCode == Enum.KeyCode.W then control.F = 1 end
+    if input.KeyCode == Enum.KeyCode.S then control.B = -1 end
+    if input.KeyCode == Enum.KeyCode.A then control.L = -1 end
+    if input.KeyCode == Enum.KeyCode.D then control.R = 1 end
+    if input.KeyCode == Enum.KeyCode.Space then control.U = 1 end
+    if input.KeyCode == Enum.KeyCode.LeftControl then control.D = -1 end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if not flyingEnabled or not flying then return end
-
-	if input.KeyCode == Enum.KeyCode.W then
-		moveDirection -= Vector3.new(0, 0, -1)
-	elseif input.KeyCode == Enum.KeyCode.S then
-		moveDirection -= Vector3.new(0, 0, 1)
-	elseif input.KeyCode == Enum.KeyCode.A then
-		moveDirection -= Vector3.new(-1, 0, 0)
-	elseif input.KeyCode == Enum.KeyCode.D then
-		moveDirection -= Vector3.new(1, 0, 0)
-	elseif input.KeyCode == Enum.KeyCode.Space then
-		moveDirection -= Vector3.new(0, 1, 0)
-	elseif input.KeyCode == Enum.KeyCode.LeftControl then
-		moveDirection -= Vector3.new(0, -1, 0)
-	end
+    if not flying then return end
+    if input.KeyCode == Enum.KeyCode.W then control.F = 0 end
+    if input.KeyCode == Enum.KeyCode.S then control.B = 0 end
+    if input.KeyCode == Enum.KeyCode.A then control.L = 0 end
+    if input.KeyCode == Enum.KeyCode.D then control.R = 0 end
+    if input.KeyCode == Enum.KeyCode.Space then control.U = 0 end
+    if input.KeyCode == Enum.KeyCode.LeftControl then control.D = 0 end
 end)
 
-local function enableFly()
-	if flying then return end
+local function startFly()
+    if flying then return end
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
 
-	character = LocalPlayer.Character
-	if not character then return end
+    flying = true
+    hum.PlatformStand = true
 
-	humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-	humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoidRootPart or not humanoid then return end
+    bodyGyro = Instance.new("BodyGyro", hrp)
+    bodyGyro.P = 90000
+    bodyGyro.MaxTorque = Vector3.new(1e9,1e9,1e9)
 
-	humanoid.PlatformStand = true
-	humanoid.AutoRotate = false
+    bodyVelocity = Instance.new("BodyVelocity", hrp)
+    bodyVelocity.MaxForce = Vector3.new(1e9,1e9,1e9)
+    bodyVelocity.P = 1250
 
-	velocity = Instance.new("BodyVelocity")
-	velocity.Velocity = Vector3.zero
-	velocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-	velocity.P = 12500
-	velocity.Parent = humanoidRootPart
-
-	gyro = Instance.new("BodyGyro")
-	gyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-	gyro.P = 3000
-	gyro.CFrame = humanoidRootPart.CFrame
-	gyro.Parent = humanoidRootPart
-
-	flying = true
-
-	flyConnection = RunService.RenderStepped:Connect(function()
-		if flying and humanoidRootPart and velocity then
-			local camera = workspace.CurrentCamera
-			local moveVec = moveDirection
-
-			if moveVec.Magnitude > 0 then
-				moveVec = moveVec.Unit * 22
-			end
-
-			local worldDirection = camera.CFrame:VectorToWorldSpace(moveVec)
-			velocity.Velocity = worldDirection
-
-			-- Face opposite direction of camera horizontally, keep upright
-			local camLook = camera.CFrame.LookVector
-			local lookDir = Vector3.new(-camLook.X, 0, -camLook.Z).Unit
-			gyro.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDir)
-		end
-	end)
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not flying then return end
+        local cam = workspace.CurrentCamera
+        local dir = Vector3.new(control.L + control.R, control.U + control.D, control.F + control.B)
+        if dir.Magnitude > 0 then
+            dir = cam.CFrame:VectorToWorldSpace(dir.Unit) * speed
+        end
+        bodyVelocity.Velocity = dir
+        bodyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position + cam.CFrame.LookVector)
+    end)
 end
 
-local function disableFly()
-	if velocity then velocity:Destroy() end
-	if gyro then gyro:Destroy() end
-	if flyConnection then flyConnection:Disconnect() flyConnection = nil end
+local function stopFly()
+    flying = false
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand = false end
+    end
 
-	if humanoid then
-		humanoid.PlatformStand = false
-		humanoid.AutoRotate = true
-	end
-
-	flying = false
-	moveDirection = Vector3.zero
+    if bodyGyro then bodyGyro:Destroy() end
+    if bodyVelocity then bodyVelocity:Destroy() end
+    if flyConnection then flyConnection:Disconnect() flyConnection = nil end
+    control = {F=0, B=0, L=0, R=0, U=0, D=0}
 end
 
--- ======= UI SYSTEM ======= --
-
+-- UI Creation
 local function createUI()
-	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "PlayerControlUI"
-	screenGui.ResetOnSpawn = false
-	screenGui.Parent = PlayerGui
+    local gui = Instance.new("ScreenGui", PlayerGui)
+    gui.Name = "ControlUI"
+    gui.ResetOnSpawn = false
 
-	-- Fly Button
-	local flyButton = Instance.new("TextButton")
-	flyButton.Size = UDim2.new(0, 140, 0, 40)
-	flyButton.Position = UDim2.new(1, -150, 1, -100) -- Above highlights button
-	flyButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-	flyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-	flyButton.Font = Enum.Font.SourceSansBold
-	flyButton.TextSize = 18
-	flyButton.Text = "Fly: OFF"
-	flyButton.AnchorPoint = Vector2.new(0, 0)
-	flyButton.Parent = screenGui
+    -- Fly Button: above Highlights
+    local flyBtn = Instance.new("TextButton", gui)
+    flyBtn.Size = UDim2.new(0,140,0,40)
+    flyBtn.Position = UDim2.new(1,-150,1,-100)
+    flyBtn.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    flyBtn.TextColor3 = Color3.new(1,1,1)
+    flyBtn.Font = Enum.Font.SourceSansBold
+    flyBtn.TextSize = 18
+    flyBtn.Text = "Fly: OFF"
+    flyBtn.MouseButton1Click:Connect(function()
+        flyingEnabled = not flyingEnabled
+        flyBtn.Text = "Fly: " .. (flyingEnabled and "ON" or "OFF")
+        if flyingEnabled then startFly() else stopFly() end
+    end)
 
-	flyButton.MouseButton1Click:Connect(function()
-		flyingEnabled = not flyingEnabled
-		flyButton.Text = "Fly: " .. (flyingEnabled and "ON" or "OFF")
-
-		if flyingEnabled then
-			enableFly()
-		else
-			disableFly()
-		end
-	end)
-
-	-- Highlights Button
-	local highlightButton = Instance.new("TextButton")
-	highlightButton.Size = UDim2.new(0, 140, 0, 40)
-	highlightButton.Position = UDim2.new(1, -150, 1, -50)
-	highlightButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-	highlightButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-	highlightButton.Font = Enum.Font.SourceSansBold
-	highlightButton.TextSize = 18
-	highlightButton.Text = "Highlights: ON"
-	highlightButton.AnchorPoint = Vector2.new(0, 0)
-	highlightButton.Parent = screenGui
-
-	highlightButton.MouseButton1Click:Connect(function()
-		highlightsEnabled = not highlightsEnabled
-		highlightButton.Text = "Highlights: " .. (highlightsEnabled and "ON" or "OFF")
-
-		for _, h in ipairs(highlightList) do
-			if h and h.Parent then h.Enabled = highlightsEnabled end
-		end
-
-		for _, n in ipairs(nameTagList) do
-			if n and n.Parent then n.Enabled = highlightsEnabled end
-		end
-	end)
+    -- Highlights Button
+    local hlBtn = Instance.new("TextButton", gui)
+    hlBtn.Size = UDim2.new(0,140,0,40)
+    hlBtn.Position = UDim2.new(1,-150,1,-50)
+    hlBtn.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    hlBtn.TextColor3 = Color3.new(1,1,1)
+    hlBtn.Font = Enum.Font.SourceSansBold
+    hlBtn.TextSize = 18
+    hlBtn.Text = "Highlights: ON"
+    hlBtn.MouseButton1Click:Connect(function()
+        highlightsEnabled = not highlightsEnabled
+        hlBtn.Text = "Highlights: " .. (highlightsEnabled and "ON" or "OFF")
+        for _, h in ipairs(highlightList) do if h and h.Parent then h.Enabled = highlightsEnabled end end
+        for _, n in ipairs(nameTagList) do if n and n.Parent then n.Enabled = highlightsEnabled end end
+    end)
 end
 
 createUI()
