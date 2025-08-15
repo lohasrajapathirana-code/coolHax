@@ -34,7 +34,7 @@ local function ensureNameTag(character, playerName)
 		local billboard = Instance.new("BillboardGui", head)
 		billboard.Name = "NameTag"
 		billboard.Adornee = head
-		billboard.Size = UDim2.new(0, 120, 0, 20)
+		billboard.Size = UDim2.new(0, 120, 0, 18) -- slightly smaller height
 		billboard.StudsOffset = Vector3.new(0, 2.5, 0)
 		billboard.AlwaysOnTop = true
 		billboard.Enabled = highlightsEnabled
@@ -47,6 +47,7 @@ local function ensureNameTag(character, playerName)
 		label.TextStrokeTransparency = 0.5
 		label.Font = Enum.Font.SourceSansBold
 		label.TextScaled = true
+		label.TextSize = 14
 
 		table.insert(nameTagList, billboard)
 	end
@@ -102,7 +103,8 @@ local function startFly()
 			dir = cam.CFrame:VectorToWorldSpace(dir.Unit) * speed
 		end
 		bodyVelocity.Velocity = dir
-		bodyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position + cam.CFrame.LookVector)
+		-- Face opposite side of camera
+		bodyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position - cam.CFrame.LookVector)
 	end)
 end
 
@@ -180,7 +182,7 @@ end
 
 createUI()
 
--- ✅ Ensure flying resumes after respawn
+-- Ensure flying resumes after respawn/teleport
 LocalPlayer.CharacterAdded:Connect(function()
 	if flyingEnabled then
 		task.wait(0.25)
