@@ -6,38 +6,42 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- States
+-- State variables
 local flyingEnabled = false
 local flying = false
 local highlightsEnabled = true
 local speed = 50
-local bodyGyro, bodyVelocity, flyConnection
 
+local bodyGyro, bodyVelocity, flyConnection
 local control = {F = 0, L = 0, U = 0, D = 0}
+
 local highlightList = {}
 local nameTagList = {}
 
--- Highlights & Name Tags
-local function ensureHighlight(character)
+-- Create or get Highlight instance on character
+local function createHighlight(character)
 	if not character:FindFirstChild("Highlight") then
-		local highlight = Instance.new("Highlight", character)
+		local highlight = Instance.new("Highlight")
 		highlight.FillColor = Color3.fromRGB(0, 170, 255)
 		highlight.OutlineColor = Color3.new(0, 0, 0)
 		highlight.Enabled = highlightsEnabled
+		highlight.Parent = character
 		table.insert(highlightList, highlight)
 	end
 end
 
-local function ensureNameTag(character, playerName)
+-- Create BillboardGui name tag above character's head
+local function createNameTag(character, playerName)
 	local head = character:FindFirstChild("Head")
 	if head and not head:FindFirstChild("NameTag") then
-		local billboard = Instance.new("BillboardGui", head)
+		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "NameTag"
 		billboard.Adornee = head
-		billboard.Size = UDim2.new(0, 120, 0, 18) -- slightly smaller height
+		billboard.Size = UDim2.new(0, 120, 0, 18) -- slightly smaller
 		billboard.StudsOffset = Vector3.new(0, 2.5, 0)
 		billboard.AlwaysOnTop = true
 		billboard.Enabled = highlightsEnabled
+		billboard.Parent = head
 
 		local label = Instance.new("TextLabel", billboard)
 		label.Size = UDim2.new(1, 0, 1, 0)
@@ -53,57 +57,76 @@ local function ensureNameTag(character, playerName)
 	end
 end
 
--- Monitor players
+-- Monitor a player's character for highlights and nametags
 local function monitorPlayer(player)
 	if player == LocalPlayer then return end
-	local function onChar(char)
-		ensureHighlight(char)
-		ensureNameTag(char, player.Name)
+
+	local function onCharacterAdded(char)
+		createHighlight(char)
+		createNameTag(char, player.Name)
 	end
-	if player.Character then onChar(player.Character) end
-	player.CharacterAdded:Connect(onChar)
+
+	if player.Character then
+		onCharacterAdded(player.Character)
+	end
+	player.CharacterAdded:Connect(onCharacterAdded)
 end
 
-for _, p in ipairs(Players:GetPlayers()) do monitorPlayer(p) end
+-- Setup existing players
+for _, player in ipairs(Players:GetPlayers()) do
+	monitorPlayer(player)
+end
+-- New players
 Players.PlayerAdded:Connect(monitorPlayer)
 
+-- Continuously ensure highlights and nametags exist (for moving players, respawns)
 RunService.Heartbeat:Connect(function()
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= LocalPlayer and p.Character then
-			ensureHighlight(p.Character)
-			ensureNameTag(p.Character, p.Name)
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			createHighlight(player.Character)
+			createNameTag(player.Character, player.Name)
 		end
 	end
 end)
 
--- Flying Functions
+-- Flying functionality
 local function startFly()
 	if flying then return end
 	local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	if not hrp or not hum then return end
+	local hrp = char:WaitForChild("HumanoidRootPart")
+	local hum = char:WaitForChild("Humanoid")
 
 	flying = true
 	hum.PlatformStand = true
 
-	bodyGyro = Instance.new("BodyGyro", hrp)
-	bodyGyro.P = 90000
+	bodyGyro = Instance.new("BodyGyro")
+	bodyGyro.P = 9000
 	bodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+	bodyGyro.Parent = hrp
 
-	bodyVelocity = Instance.new("BodyVelocity", hrp)
+	bodyVelocity = Instance.new("BodyVelocity")
 	bodyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
 	bodyVelocity.P = 1250
+	bodyVelocity.Velocity = Vector3.new(0,0,0)
+	bodyVelocity.Parent = hrp
 
 	flyConnection = RunService.RenderStepped:Connect(function()
 		if not flying then return end
+
 		local cam = workspace.CurrentCamera
-		local dir = Vector3.new(control.L, control.U + control.D, control.F)
-		if dir.Magnitude > 0 then
-			dir = cam.CFrame:VectorToWorldSpace(dir.Unit) * speed
+		local moveDirection = Vector3.new(control.L, control.U + control.D, control.F)
+		local velocity = Vector3.new(0,0,0)
+
+		if moveDirection.Magnitude > 0 then
+			-- moveDirection uses camera relative coordinates
+			local camCFrame = cam.CFrame
+			local moveVec = (camCFrame.RightVector * moveDirection.X) + (camCFrame.UpVector * moveDirection.Y) + (camCFrame.LookVector * moveDirection.Z)
+			velocity = moveVec.Unit * speed
 		end
-		bodyVelocity.Velocity = dir
-		-- Face opposite side of camera
+
+		bodyVelocity.Velocity = velocity
+
+		-- Make character face opposite direction of camera (like requested)
 		bodyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position - cam.CFrame.LookVector)
 	end)
 end
@@ -113,24 +136,35 @@ local function stopFly()
 	local char = LocalPlayer.Character
 	if char then
 		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum then hum.PlatformStand = false end
+		if hum then
+			hum.PlatformStand = false
+		end
 	end
-	if bodyGyro then bodyGyro:Destroy() end
-	if bodyVelocity then bodyVelocity:Destroy() end
-	if flyConnection then flyConnection:Disconnect() flyConnection = nil end
+	if bodyGyro then
+		bodyGyro:Destroy()
+		bodyGyro = nil
+	end
+	if bodyVelocity then
+		bodyVelocity:Destroy()
+		bodyVelocity = nil
+	end
+	if flyConnection then
+		flyConnection:Disconnect()
+		flyConnection = nil
+	end
 	control = {F = 0, L = 0, U = 0, D = 0}
 end
 
--- Input (corrected directions)
-UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe or not (flying and flyingEnabled) then return end
+-- Input handling for flying
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed or not flyingEnabled then return end
 
-	if input.KeyCode == Enum.KeyCode.W then control.F = -1 end -- forward
-	if input.KeyCode == Enum.KeyCode.S then control.F = 1 end  -- backward
-	if input.KeyCode == Enum.KeyCode.A then control.L = -1 end
-	if input.KeyCode == Enum.KeyCode.D then control.L = 1 end
-	if input.KeyCode == Enum.KeyCode.Space then control.U = 1 end
-	if input.KeyCode == Enum.KeyCode.LeftControl then control.D = -1 end
+	if input.KeyCode == Enum.KeyCode.W then control.F = -1 end -- Forward
+	if input.KeyCode == Enum.KeyCode.S then control.F = 1 end -- Backward
+	if input.KeyCode == Enum.KeyCode.A then control.L = -1 end -- Left
+	if input.KeyCode == Enum.KeyCode.D then control.L = 1 end -- Right
+	if input.KeyCode == Enum.KeyCode.Space then control.U = 1 end -- Up
+	if input.KeyCode == Enum.KeyCode.LeftControl then control.D = -1 end -- Down
 end)
 
 UserInputService.InputEnded:Connect(function(input)
@@ -142,7 +176,7 @@ UserInputService.InputEnded:Connect(function(input)
 	if input.KeyCode == Enum.KeyCode.LeftControl then control.D = 0 end
 end)
 
--- UI
+-- Create UI buttons
 local function createUI()
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "ControlUI"
@@ -150,7 +184,7 @@ local function createUI()
 	gui.IgnoreGuiInset = true
 	gui.Parent = PlayerGui
 
-	-- Fly Button
+	-- Fly Toggle Button
 	local flyBtn = Instance.new("TextButton", gui)
 	flyBtn.Size = UDim2.new(0, 140, 0, 40)
 	flyBtn.Position = UDim2.new(1, -150, 1, -100)
@@ -160,14 +194,17 @@ local function createUI()
 	flyBtn.TextSize = 18
 	flyBtn.ZIndex = 10
 	flyBtn.Text = "Fly: OFF"
-	flyBtn.Visible = true
 	flyBtn.MouseButton1Click:Connect(function()
 		flyingEnabled = not flyingEnabled
 		flyBtn.Text = "Fly: " .. (flyingEnabled and "ON" or "OFF")
-		if flyingEnabled then startFly() else stopFly() end
+		if flyingEnabled then
+			startFly()
+		else
+			stopFly()
+		end
 	end)
 
-	-- Highlights Button
+	-- Highlights Toggle Button
 	local hlBtn = Instance.new("TextButton", gui)
 	hlBtn.Size = UDim2.new(0, 140, 0, 40)
 	hlBtn.Position = UDim2.new(1, -150, 1, -50)
@@ -177,12 +214,19 @@ local function createUI()
 	hlBtn.TextSize = 18
 	hlBtn.ZIndex = 10
 	hlBtn.Text = "Highlights: ON"
-	hlBtn.Visible = true
 	hlBtn.MouseButton1Click:Connect(function()
 		highlightsEnabled = not highlightsEnabled
 		hlBtn.Text = "Highlights: " .. (highlightsEnabled and "ON" or "OFF")
-		for _, h in ipairs(highlightList) do if h and h.Parent then h.Enabled = highlightsEnabled end end
-		for _, tag in ipairs(nameTagList) do if tag and tag.Parent then tag.Enabled = highlightsEnabled end end
+		for _, highlight in ipairs(highlightList) do
+			if highlight and highlight.Parent then
+				highlight.Enabled = highlightsEnabled
+			end
+		end
+		for _, tag in ipairs(nameTagList) do
+			if tag and tag.Parent then
+				tag.Enabled = highlightsEnabled
+			end
+		end
 	end)
 end
 
@@ -191,7 +235,7 @@ createUI()
 -- Ensure flying resumes after respawn/teleport
 LocalPlayer.CharacterAdded:Connect(function()
 	if flyingEnabled then
-		task.wait(0.25)
+		task.wait(0.2)
 		startFly()
 	end
 end)
